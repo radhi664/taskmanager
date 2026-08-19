@@ -4,15 +4,20 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 
 const app = express();
 
-app.use(cors());
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+app.use(cors({ origin: clientUrl }));
 app.use(express.json());
 app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/tickets', require('./routes/ticketRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+app.use(notFound);
+app.use(errorHandler);
 
 // Export the app object for testing
 if (require.main === module) {

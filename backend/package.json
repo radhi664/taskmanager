@@ -1,7 +1,7 @@
 {
-  "name": "task-manager-backend",
+  "name": "it-support-ticket-system-backend",
   "version": "1.0.0",
-  "description": "Backend for Task Manager App",
+  "description": "Backend for IT Support Ticket System",
   "main": "server.js",
   "scripts": {
     "test": "mocha",
@@ -26,6 +26,6 @@
     "nodemon": "^2.0.15",
     "sinon": "^19.0.2"
   },
-  "author": "Task Manager Team",
+  "author": "IT Support Ticket System Team",
   "license": "ISC"
 }
