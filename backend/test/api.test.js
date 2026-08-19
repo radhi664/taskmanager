@@ -282,6 +282,19 @@ describe('IT Support Ticket API', () => {
             expect(ticket.status).to.equal('in_progress');
         });
 
+        ['open', 'pending'].forEach((status) => {
+            it(`allows the assigned Support Agent to set status to ${status}`, async () => {
+                const agent = userFixture('support_agent');
+                stubAuthenticatedUsers([agent]);
+                const ticket = { status: 'in_progress', assignedAgent: agent.id, save: sinon.stub().resolves() };
+                sinon.stub(Ticket, 'findById').resolves(ticket);
+                const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
+                    .set(auth(tokenFor(agent.id))).send({ status });
+                expect(response).to.have.status(200);
+                expect(ticket.status).to.equal(status);
+            });
+        });
+
         it('rejects attempts by an agent to move a ticket back to assigned', async () => {
             const agent = userFixture('support_agent');
             stubAuthenticatedUsers([agent]);
@@ -330,6 +343,71 @@ describe('IT Support Ticket API', () => {
                 .set(auth(tokenFor(agent.id))).send({});
             expect(response).to.have.status(400);
             expect(response.body.error.code).to.equal('VALIDATION_ERROR');
+        });
+
+        it('rejects Waiting for User without a message', async () => {
+            const agent = userFixture('support_agent');
+            stubAuthenticatedUsers([agent]);
+            const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
+                .set(auth(tokenFor(agent.id))).send({ status: 'waiting_for_user' });
+            expect(response).to.have.status(400);
+            expect(response.body.error.code).to.equal('VALIDATION_ERROR');
+        });
+
+        it('allows the assigned agent to send a requester message and preserves history', async () => {
+            const agent = userFixture('support_agent');
+            stubAuthenticatedUsers([agent]);
+            const existing = { author: objectId(), authorName: 'Previous author', authorRole: 'requester', message: 'Earlier update' };
+            const ticket = { status: 'in_progress', assignedAgent: agent.id, conversation: [existing], save: sinon.stub().resolves() };
+            sinon.stub(Ticket, 'findById').resolves(ticket);
+            const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
+                .set(auth(tokenFor(agent.id))).send({ status: 'waiting_for_user', message: 'Please provide a screenshot' });
+            expect(response).to.have.status(200);
+            expect(ticket.status).to.equal('waiting_for_user');
+            expect(ticket.conversation).to.have.length(2);
+            expect(ticket.conversation[0]).to.equal(existing);
+            expect(ticket.conversation[1].authorRole).to.equal('support_agent');
+        });
+
+        it('denies an unassigned agent sending a requester message', async () => {
+            const agent = userFixture('support_agent');
+            stubAuthenticatedUsers([agent]);
+            sinon.stub(Ticket, 'findById').resolves({ status: 'in_progress', assignedAgent: objectId(), conversation: [] });
+            const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
+                .set(auth(tokenFor(agent.id))).send({ status: 'waiting_for_user', message: 'Need more details' });
+            expect(response).to.have.status(403);
+        });
+
+        it('allows the correct requester to reply and moves the ticket to In Progress', async () => {
+            const requester = userFixture('requester');
+            stubAuthenticatedUsers([requester]);
+            const ticket = { status: 'waiting_for_user', requester: requester.id, conversation: [], save: sinon.stub().resolves() };
+            sinon.stub(Ticket, 'findById').resolves(ticket);
+            const response = await chai.request(app).post(`/api/tickets/${objectId()}/messages`)
+                .set(auth(tokenFor(requester.id))).send({ message: 'The requested screenshot is attached elsewhere' });
+            expect(response).to.have.status(201);
+            expect(ticket.status).to.equal('in_progress');
+            expect(ticket.conversation).to.have.length(1);
+            expect(ticket.conversation[0].authorRole).to.equal('requester');
+        });
+
+        it('denies another requester replying', async () => {
+            const requester = userFixture('requester');
+            stubAuthenticatedUsers([requester]);
+            sinon.stub(Ticket, 'findById').resolves({ status: 'waiting_for_user', requester: objectId(), conversation: [] });
+            const response = await chai.request(app).post(`/api/tickets/${objectId()}/messages`)
+                .set(auth(tokenFor(requester.id))).send({ message: 'Unauthorized reply' });
+            expect(response).to.have.status(403);
+        });
+
+        it('prevents resolved tickets from receiving messages', async () => {
+            const requester = userFixture('requester');
+            stubAuthenticatedUsers([requester]);
+            sinon.stub(Ticket, 'findById').resolves({ status: 'resolved', requester: requester.id, conversation: [] });
+            const response = await chai.request(app).post(`/api/tickets/${objectId()}/messages`)
+                .set(auth(tokenFor(requester.id))).send({ message: 'Late reply' });
+            expect(response).to.have.status(409);
+            expect(response.body.error.code).to.equal('INVALID_STATUS_TRANSITION');
         });
     });
 });

@@ -1,5 +1,5 @@
 const priorities = ['low', 'medium', 'high', 'urgent'];
-const statuses = ['in_progress'];
+const statuses = ['open', 'pending', 'in_progress', 'waiting_for_user'];
 
 const requiredString = (body, field, maxLength) => {
     if (typeof body[field] !== 'string' || !body[field].trim()) {
@@ -59,11 +59,14 @@ const validateAssignment = (body) => {
 };
 
 const validateStatus = (body) => {
-    if (!statuses.includes(body.status)) return [`status must be one of: ${statuses.join(', ')}`];
-    return [];
+    const errors = [];
+    if (!statuses.includes(body.status)) errors.push(`status must be one of: ${statuses.join(', ')}`);
+    if (body.status === 'waiting_for_user') errors.push(requiredString(body, 'message', 2000));
+    return errors.filter(Boolean);
 };
 
 const validateResolution = (body) => [requiredString(body, 'resolutionSummary', 2000)].filter(Boolean);
+const validateMessage = (body) => [requiredString(body, 'message', 2000)].filter(Boolean);
 
 module.exports = {
     validateRegistration,
@@ -73,4 +76,5 @@ module.exports = {
     validateAssignment,
     validateStatus,
     validateResolution,
+    validateMessage,
 };

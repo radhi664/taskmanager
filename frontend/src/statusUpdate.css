@@ -1,0 +1,9 @@
+.status-update-form{width:55%}
+.status-update-form label{display:block;margin:0 0 14px;font-size:14px;font-weight:600}
+.status-update-form label>span{float:right;color:#6b7280;font-weight:400}
+.status-update-form select,.status-update-form textarea{display:block;width:100%;margin-top:8px;border:1px solid #d1d5db;border-radius:7px;padding:12px 13px;outline:none;background:#fff}
+.status-update-form select:focus,.status-update-form textarea:focus{border-color:#2563eb;box-shadow:0 0 0 3px #2563eb15}
+.status-update-form textarea{resize:vertical}
+.status-update-form .button{float:right;margin-top:2px}
+.read-only-note{padding:12px 14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:7px}
+@media(max-width:760px){.status-update-form{width:100%}}
