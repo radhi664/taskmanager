@@ -2,21 +2,44 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { apiErrorMessage } from '../axiosConfig';
 import { useAuth } from '../context/AuthContext';
+/**
+ * Converts backend enum values into readable status and priority labels.
+ *
+ * @param {string} value - Underscore-separated backend value.
+ * @returns {string|undefined} Title-cased label for display.
+ */
 const pretty = value => value?.replaceAll('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
 const roleConfig = {
   it_manager: { heading: 'Dashboard Overview', cardTitle: 'Recent Requests', stats: [['Total Requests', 'total'], ['Pending', 'pending'], ['In Progress', 'progress'], ['Resolved', 'resolved']], headers: ['Request ID', 'Requester', 'Category', 'Priority', 'Status', 'Assigned To', 'Created Date', 'Actions'] },
   support_agent: { heading: 'My Assigned Tasks', cardTitle: 'My Task Queue', stats: [['Assigned to Me', 'total'], ['Open', 'open'], ['In Progress', 'progress'], ['Resolved Today', 'resolvedToday']], headers: ['Request ID', 'Subject', 'Requester', 'Category', 'Priority', 'Status', 'Assigned Date', 'Actions'] },
   requester: { heading: 'My Requests', cardTitle: 'Recent Submissions', stats: [['Total Submitted', 'total'], ['Open', 'open'], ['In Progress', 'progress'], ['Resolved', 'resolved']], headers: ['Request ID', 'Subject', 'Category', 'Date Submitted', 'Priority', 'Status', 'View Details'] },
 };
+/**
+ * Renders the role-specific dashboard using tickets already scoped by the API.
+ * Summary counts and columns adapt for Requesters, Support Agents, and IT Managers.
+ *
+ * @returns {JSX.Element} Dashboard summary and request table.
+ */
 export default function Tickets() {
   const { user } = useAuth();
   const config = roleConfig[user.role];
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /**
+   * Loads the authenticated user's permitted ticket collection.
+   *
+   * @returns {Promise<void>} Updates request, loading, and error state.
+   */
   const load = async () => { setLoading(true); setError(''); try { const { data } = await api.get('/tickets'); setRequests(data); } catch (err) { setError(apiErrorMessage(err, 'Unable to load requests.')); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
   const counts = useMemo(() => ({ total: requests.length, pending: requests.filter(r => ['assigned', 'pending', 'waiting_for_user'].includes(r.status)).length, open: requests.filter(r => ['open', 'assigned', 'pending', 'waiting_for_user'].includes(r.status)).length, progress: requests.filter(r => r.status === 'in_progress').length, resolved: requests.filter(r => r.status === 'resolved').length, resolvedToday: requests.filter(r => r.status === 'resolved' && new Date(r.updatedAt).toDateString() === new Date().toDateString()).length }), [requests]);
+  /**
+   * Maps one ticket into cells for the authenticated role's table layout.
+   *
+   * @param {Object} request - Populated ticket returned by the API.
+   * @returns {Array<React.ReactNode>} Cells matching the current role's table headers.
+   */
   const cells = request => {
     const action = <Link className="table-action" to={`/tickets/${request._id}`}>{user.role === 'it_manager' ? (request.assignedAgent ? 'View' : 'Assign Agent') : user.role === 'support_agent' ? 'Update' : 'View'}</Link>;
     const requestId = <span className="request-id">{request.ticketNumber}</span>;

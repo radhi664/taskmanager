@@ -3,6 +3,13 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import api from '../axiosConfig';
 import { useAuth } from '../context/AuthContext';
 
+/**
+ * Renders the shared login form for all three system roles.
+ * Successful authentication stores the JWT through AuthContext and returns the
+ * user to their originally requested protected page.
+ *
+ * @returns {JSX.Element} Login form or redirect for an existing session.
+ */
 export default function Login() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
@@ -14,6 +21,12 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   if (user) return <Navigate to="/tickets" replace />;
+  /**
+   * Validates credentials locally and submits them to the authentication API.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} event - Login form submission event.
+   * @returns {Promise<void>} Updates authentication state and may navigate.
+   */
   const submit = async event => {
     event.preventDefault();
     const errors = {};

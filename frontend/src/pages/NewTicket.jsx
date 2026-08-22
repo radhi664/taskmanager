@@ -2,12 +2,25 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api, { apiErrorMessage } from '../axiosConfig';
 
+/**
+ * Renders the Requester workflow for submitting a new support request.
+ * Backend-supported ticket fields are persisted while visual-only location and
+ * attachment selections remain local to the form.
+ *
+ * @returns {JSX.Element} New support request form.
+ */
 export default function NewTicket() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ title: '', category: '', location: '', description: '', priority: 'medium' });
   const [attachment, setAttachment] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  /**
+   * Validates required fields and creates the Requester's ticket through the API.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} event - New-request form submission event.
+   * @returns {Promise<void>} Navigates to the created ticket or displays an API error.
+   */
   const submit = async event => {
     event.preventDefault(); setError('');
     if (!form.title.trim() || !form.category || !form.location.trim() || !form.description.trim()) return setError('Complete all required fields.');

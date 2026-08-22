@@ -10,6 +10,11 @@ import Tickets from './pages/Tickets';
 import NewTicket from './pages/NewTicket';
 import TicketDetails from './pages/TicketDetails';
 
+/**
+ * Defines public, authenticated, and Requester-only application routes.
+ *
+ * @returns {JSX.Element} Root router and page shell for the ticket system.
+ */
 function App() {
   return <BrowserRouter><Navbar /><main className="page-shell"><Routes>
     <Route path="/login" element={<Login />} />

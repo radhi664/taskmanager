@@ -3,8 +3,21 @@ import { Link, useLocation, useParams } from 'react-router-dom';
 import api, { apiErrorMessage } from '../axiosConfig';
 import { useAuth } from '../context/AuthContext';
 
+/**
+ * Converts a backend enum value into a readable interface label.
+ *
+ * @param {string} value - Status or priority value from the API.
+ * @returns {string|undefined} Title-cased label.
+ */
 const pretty = value => value?.replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase());
 
+/**
+ * Displays one authorised ticket and the actions allowed for the current role.
+ * It supports IT Manager assignment, Support Agent status/resolution work, and
+ * Requester replies without bypassing server-side permissions.
+ *
+ * @returns {JSX.Element} Ticket details, conversation, and role-specific controls.
+ */
 export default function TicketDetails() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -21,6 +34,11 @@ export default function TicketDetails() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState(location.state?.message || '');
 
+  /**
+   * Reloads the ticket after initial navigation and every successful mutation.
+   *
+   * @returns {Promise<void>} Synchronises ticket and form state with the API.
+   */
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -45,6 +63,13 @@ export default function TicketDetails() {
     }
   }, [load, user.role]);
 
+  /**
+   * Runs a ticket mutation with shared progress, error, refresh, and success handling.
+   *
+   * @param {Function} request - Deferred Axios request for the authorised operation.
+   * @param {string} success - Confirmation displayed after the refreshed ticket loads.
+   * @returns {Promise<boolean>} True when the mutation and refresh both succeed.
+   */
   const action = async (request, success) => {
     setSaving(true);
     setError('');
@@ -62,11 +87,23 @@ export default function TicketDetails() {
     }
   };
 
+  /**
+   * Assigns the ticket to the Support Agent selected by an IT Manager.
+   *
+   * @returns {void} Starts the API mutation or displays a selection error.
+   */
   const assign = () => {
     if (!agentId) return setError('Select a support agent.');
     action(() => api.patch(`/tickets/${id}/assign`, { assignedAgentId: agentId }), 'Request assigned successfully.');
   };
 
+  /**
+   * Applies the assigned Support Agent's selected workflow status.
+   * Resolution requires an in-progress ticket and summary; waiting for a Requester
+   * includes the required conversation message in the atomic status request.
+   *
+   * @returns {void|Promise<boolean>} Starts the appropriate status or resolution request.
+   */
   const updateStatus = () => {
     if (selectedStatus === 'resolved') {
       if (ticket.status !== 'in_progress') return setError('A request can only be resolved when its current status is In Progress.');
@@ -82,6 +119,11 @@ export default function TicketDetails() {
     );
   };
 
+  /**
+   * Sends the owning Requester's reply and refreshes the automatically resumed ticket.
+   *
+   * @returns {Promise<void>} Clears the reply after success or exposes validation/API errors.
+   */
   const sendReply = async () => {
     if (!reply.trim()) return setError('Your reply is required.');
     const sent = await action(

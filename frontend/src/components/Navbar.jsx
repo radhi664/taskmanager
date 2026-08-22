@@ -16,6 +16,12 @@ const icons = [
   <path key="e" d="M4 19V9M10 19V5M16 19v-8M22 19V3"/>,
 ];
 
+/**
+ * Renders role-specific navigation and the authenticated account header.
+ * Requesters, Support Agents, and IT Managers receive labels matching their workflows.
+ *
+ * @returns {JSX.Element|null} Authenticated shell navigation, or nothing on login.
+ */
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -26,6 +32,11 @@ export default function Navbar() {
   }, [user]);
   if (!user || location.pathname === '/login') return null;
   const initials = user.name?.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase() || roleLabels[user.role].split(' ').map(w => w[0]).join('');
+  /**
+   * Clears persisted authentication and returns the user to the login page.
+   *
+   * @returns {void}
+   */
   const signOut = () => { logout(); navigate('/login'); };
   return <>
     <aside className="sidebar"><Link className="sidebar-brand" to="/tickets">ITSTS</Link><nav className="side-nav" aria-label="Main navigation">
