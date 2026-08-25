@@ -1,26 +1,40 @@
-**Task Manager Application Overview:The task manager application is designed to help users efficiently manage their tasks and responsibilities by providing a user-friendly interface for creating, viewing, updating, and deleting tasks. It includes essential features such as secure user authentication, allowing individuals to sign up and log in to their accounts, as well as profile management to update personal information. With built-in validation such as input field validation and email validation, the application ensures a seamless user experience while enhancing productivity and organization in both personal and professional settings. **
+# IT Support Ticket System
 
-**This apps **contain** the following features:**
+The IT Support Ticket System is an individual IFN636 project that supports the submission, assignment, processing and resolution of IT support requests. The application provides authenticated and role-based access for Users, IT Managers and Support Agents.
 
-* Signup
-* Login
-* Logout
-* Update profile
-* Add tasks
-* View tasks
-* Update tasks
-* Delete tasks
+## Main Workflows
 
-**This **app**lication** is**almost **a** precompiled** app**. However, students will develop some features,**such as adding tasks, viewing tasks, updating tasks, and **deleting** tasks**. **Students** will interact with GitHub when they develop the features.**
+1. A User logs in, submits a support request, tracks its status and responds when additional information is requested.
+2. An IT Manager reviews and assigns the request, after which a Support Agent updates its priority and status, communicates with the User and records a resolution summary.
 
----
+## Key Features
 
-**Prerequisite:** Please install the following software and create account in following web tools** **
+- JWT authentication and role-based access control.
+- Ticket submission with input validation and persistent storage.
+- Authorised ticket viewing based on the authenticated role.
+- Ticket assignment by the IT Manager.
+- Priority and status updates by the Support Agent.
+- Open, In Progress, Waiting for User and Resolved statuses.
+- Agent notes and User responses when additional information is required.
+- Resolution summary validation before a ticket can be resolved.
+- Attachment handling.
+- Automated backend testing and GitHub Actions continuous integration.
 
-* **Nodejs [**[https://nodejs.org/en](https://nodejs.org/en)]** **
-* **Git [**[https://git-scm.com/](https://git-scm.com/)]** **
-* **VS code editor** [[https://code.visualstudio.com/](https://code.visualstudio.com/)]** **
-* **MongoDB Account** [[https://account.mongodb.com/account/login](https://account.mongodb.com/account/login)]** - In tutorial, we have also showed how can you create account and database: follow step number 2.**
-* **GitHub Account** [[https://github.com/signup?source=login](https://github.com/signup?source=login)]** **
+## Architecture
 
----
+The application uses a React frontend that communicates with a Node.js and Express REST API through Axios. The backend uses Mongoose to store and retrieve persistent ticket and user data from MongoDB. JWT authentication middleware protects the API and applies role-based permissions.
+
+## Prerequisites
+
+- Node.js
+- npm
+- Git
+- MongoDB, either locally or through MongoDB Atlas
+
+## Local Setup
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/radhi664/taskmanager.git
+   cd taskmanager
