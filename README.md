@@ -38,7 +38,7 @@ The application uses a React frontend that communicates with a Node.js and Expre
    ```bash
    git clone https://github.com/radhi664/taskmanager.git
    cd taskmanager
-      ```
+    ```
 
 2. Install the root, backend and frontend dependencies:
 
