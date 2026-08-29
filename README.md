@@ -111,12 +111,11 @@ GitHub Actions runs the backend tests and builds the frontend when changes are p
 
 ## Deployment
 
-The sample application is deployed on AWS EC2.
+The IT Support Ticket System is deployed on AWS EC2.
 
-- Public URL: [http://54.66.57.124](http://54.66.57.124)
-- Instance ID: `i-0c6b38d1157d37051`
-
-The public URL is available while the assigned EC2 instance is running.
+- Instance name: `MohammedR`
+- Instance ID: `i-03e0e882d29843aa1`
+- Public URL: [http://16.176.15.81](http://16.176.15.81)
 
 ## Known Limitations
 
