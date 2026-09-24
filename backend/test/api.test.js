@@ -46,6 +46,29 @@ const stubAuthenticatedUsers = (users) => {
     sinon.stub(User, 'findById').callsFake((id) => queryResult(users.find((user) => user.id === id) || null));
 };
 
+// Adapt successful persistence fixtures to validated, conditional updates.
+// Mutate only the simulated stored object after a successful write, preserving
+// the original assertions about ticket fields and conversation object identity.
+const stubTicketPersistence = (ticket) => {
+    Object.assign(ticket, { _id: objectId(), ticketNumber: 'TKT-TEST', title: 'Issue',
+        description: 'Description', category: 'Hardware', priority: 'medium',
+        requester: ticket.requester || objectId(), __v: 0 });
+    sinon.stub(Ticket, 'findById').resolves(ticket);
+    sinon.stub(Ticket, 'findOneAndUpdate').callsFake(async (filter, update, options) => {
+        expect(String(filter._id)).to.equal(String(ticket._id));
+        expect(filter.__v).to.equal(ticket.__v);
+        expect(filter.status).to.equal(ticket.status);
+        expect(options).to.include({ upsert: false, runValidators: true, new: true });
+        Object.assign(ticket, update.$set);
+        if (ticket.assignedAgent) ticket.assignedAgent = String(ticket.assignedAgent);
+        for (const [key, value] of Object.entries(update.$push || {})) {
+            ticket[key] = [...(ticket[key] || []), ...value.$each];
+        }
+        ticket.__v += update.$inc.__v;
+        return ticket;
+    });
+};
+
 describe('IT Support Ticket API', () => {
     afterEach(() => sinon.restore());
 
@@ -245,7 +268,7 @@ describe('IT Support Ticket API', () => {
             stubAuthenticatedUsers([manager]);
             sinon.stub(User, 'findOne').resolves(agent);
             const ticket = { status: 'open', assignedAgent: null, save: sinon.stub().resolves() };
-            sinon.stub(Ticket, 'findById').resolves(ticket);
+            stubTicketPersistence(ticket);
             const response = await chai.request(app).patch(`/api/tickets/${objectId()}/assign`)
                 .set(auth(tokenFor(manager.id))).send({ assignedAgentId: agent.id });
             expect(response).to.have.status(200);
@@ -275,7 +298,7 @@ describe('IT Support Ticket API', () => {
             const agent = userFixture('support_agent');
             stubAuthenticatedUsers([agent]);
             const ticket = { status: 'assigned', assignedAgent: agent.id, save: sinon.stub().resolves() };
-            sinon.stub(Ticket, 'findById').resolves(ticket);
+            stubTicketPersistence(ticket);
             const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
                 .set(auth(tokenFor(agent.id))).send({ status: 'in_progress' });
             expect(response).to.have.status(200);
@@ -287,7 +310,7 @@ describe('IT Support Ticket API', () => {
                 const agent = userFixture('support_agent');
                 stubAuthenticatedUsers([agent]);
                 const ticket = { status: 'in_progress', assignedAgent: agent.id, save: sinon.stub().resolves() };
-                sinon.stub(Ticket, 'findById').resolves(ticket);
+                stubTicketPersistence(ticket);
                 const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
                     .set(auth(tokenFor(agent.id))).send({ status });
                 expect(response).to.have.status(200);
@@ -317,7 +340,7 @@ describe('IT Support Ticket API', () => {
             const agent = userFixture('support_agent');
             stubAuthenticatedUsers([agent]);
             const ticket = { status: 'in_progress', assignedAgent: agent.id, resolutionSummary: '', save: sinon.stub().resolves() };
-            sinon.stub(Ticket, 'findById').resolves(ticket);
+            stubTicketPersistence(ticket);
             const summary = 'Access restored after updating account permissions';
             const response = await chai.request(app).patch(`/api/tickets/${objectId()}/resolve`)
                 .set(auth(tokenFor(agent.id))).send({ resolutionSummary: summary });
@@ -359,7 +382,7 @@ describe('IT Support Ticket API', () => {
             stubAuthenticatedUsers([agent]);
             const existing = { author: objectId(), authorName: 'Previous author', authorRole: 'requester', message: 'Earlier update' };
             const ticket = { status: 'in_progress', assignedAgent: agent.id, conversation: [existing], save: sinon.stub().resolves() };
-            sinon.stub(Ticket, 'findById').resolves(ticket);
+            stubTicketPersistence(ticket);
             const response = await chai.request(app).patch(`/api/tickets/${objectId()}/status`)
                 .set(auth(tokenFor(agent.id))).send({ status: 'waiting_for_user', message: 'Please provide a screenshot' });
             expect(response).to.have.status(200);
@@ -382,7 +405,7 @@ describe('IT Support Ticket API', () => {
             const requester = userFixture('requester');
             stubAuthenticatedUsers([requester]);
             const ticket = { status: 'waiting_for_user', requester: requester.id, conversation: [], save: sinon.stub().resolves() };
-            sinon.stub(Ticket, 'findById').resolves(ticket);
+            stubTicketPersistence(ticket);
             const response = await chai.request(app).post(`/api/tickets/${objectId()}/messages`)
                 .set(auth(tokenFor(requester.id))).send({ message: 'The requested screenshot is attached elsewhere' });
             expect(response).to.have.status(201);

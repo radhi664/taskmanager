@@ -10,6 +10,30 @@ const messageSchema = new mongoose.Schema(
     { timestamps: true, _id: true }
 );
 
+const identitySchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    name: { type: String, default: null },
+}, { _id: false });
+
+const lifecycleSchema = new mongoose.Schema({
+    type: { type: String, enum: ['resolved', 'reopened', 'legacy_resolution'], required: true },
+    summary: { type: String, trim: true, maxlength: 2000, required() { return this.type === 'resolved'; } },
+    reason: { type: String, trim: true, maxlength: 2000, required() { return this.type === 'reopened'; } },
+    actor: { type: identitySchema, default: null, required() { return this.type !== 'legacy_resolution'; } },
+    occurredAt: { type: Date, default: null, required() { return this.type !== 'legacy_resolution'; } },
+    capturedAt: { type: Date, required() { return this.type === 'legacy_resolution'; } },
+    previousAgent: { type: identitySchema, default: null },
+    resolutionId: { type: mongoose.Schema.Types.ObjectId, required() { return this.type === 'reopened'; } },
+});
+lifecycleSchema.pre('validate', function () {
+    if (this.type !== 'legacy_resolution' && (!this.actor?.userId || !this.actor?.name?.trim())) {
+        this.invalidate('actor', 'Recorded events require an actor ID and name');
+    }
+    if (this.type === 'legacy_resolution' && (this.actor !== null || this.occurredAt !== null)) {
+        this.invalidate('occurredAt', 'Legacy resolution actor and time must remain unknown');
+    }
+});
+
 const ticketSchema = new mongoose.Schema(
     {
         ticketNumber: { type: String, required: true, unique: true, immutable: true },
@@ -32,6 +56,7 @@ const ticketSchema = new mongoose.Schema(
         assignedAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         resolutionSummary: { type: String, trim: true, maxlength: 2000, default: '' },
         conversation: { type: [messageSchema], default: [] },
+        lifecycleHistory: { type: [lifecycleSchema], default: [] },
     },
     { timestamps: true }
 );

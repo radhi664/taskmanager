@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const Ticket = require('../models/Ticket');
 const User = require('../models/User');
+const TicketWorkflow = require('../workflow/TicketWorkflow');
 const ApiError = require('../utils/apiError');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -68,82 +69,33 @@ const getTicket = asyncHandler(async (req, res) => {
         || (req.user.role === 'requester' && requesterId.toString() === req.user.id.toString())
         || (req.user.role === 'support_agent' && agentId && agentId.toString() === req.user.id.toString());
     if (!permitted) throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to view this ticket');
-    res.json(ticket);
+    const detail = ticket.toObject ? ticket.toObject() : { ...ticket };
+    res.json({ ...detail, __v: detail.__v ?? 0, lifecycleHistory: detail.lifecycleHistory || [] });
 });
 
-/**
- * Assigns an unresolved ticket to a verified Support Agent.
- * Route authorization limits this operation to IT Managers and assignment moves
- * the ticket into the internal assigned state.
- *
- * @param {Object} req - Request containing ticket ID and selected Support Agent ID.
- * @param {Object} res - Express response used to send the updated ticket.
- * @returns {Promise<void>} Saves the assignment or throws validation/transition errors.
- */
+/** Load without populating away stored participant IDs. */
+const workflowFor = async (req) => {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'Ticket not found');
+    return new TicketWorkflow(ticket, req.user);
+};
+
 const assignTicket = asyncHandler(async (req, res) => {
     const agent = await User.findOne({ _id: req.body.assignedAgentId, role: 'support_agent' });
     if (!agent) throw new ApiError(400, 'INVALID_AGENT', 'The selected user is not a support agent');
-    const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'Ticket not found');
-    if (ticket.status === 'resolved') throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'A resolved ticket cannot be reassigned');
-    ticket.assignedAgent = agent.id;
-    ticket.status = 'assigned';
-    await ticket.save();
-    res.json(ticket);
+    res.json(await (await workflowFor(req)).assign(agent));
 });
 
-/**
- * Updates a ticket status for its assigned Support Agent.
- * Waiting-for-user updates atomically append the required agent message so the
- * Requester can understand what information or action is needed.
- *
- * @param {Object} req - Request containing ticket ID, status, and an optional required message.
- * @param {Object} res - Express response used to send the updated ticket.
- * @returns {Promise<void>} Saves the status/message or throws ownership and transition errors.
- */
 const updateStatus = asyncHandler(async (req, res) => {
-    const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'Ticket not found');
-    if (!ticket.assignedAgent || ticket.assignedAgent.toString() !== req.user.id.toString()) {
-        throw new ApiError(403, 'FORBIDDEN', 'Only the assigned support agent can update this ticket');
-    }
-    if (ticket.status === 'resolved') throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'A resolved ticket cannot change status');
-    ticket.status = req.body.status;
-    if (req.body.status === 'waiting_for_user') {
-        if (!ticket.conversation) ticket.conversation = [];
-        ticket.conversation.push({
-            author: req.user.id,
-            authorName: req.user.name,
-            authorRole: 'support_agent',
-            message: req.body.message.trim(),
-        });
-    }
-    await ticket.save();
-    res.json(ticket);
+    res.json(await (await workflowFor(req)).updateStatus(req.body.status, req.body.message));
 });
 
-/**
- * Resolves an in-progress ticket with a required resolution summary.
- * Only the assigned Support Agent may complete this irreversible workflow step.
- *
- * @param {Object} req - Request containing ticket ID and validated resolution summary.
- * @param {Object} res - Express response used to send the resolved ticket.
- * @returns {Promise<void>} Saves the resolution or throws authorization/transition errors.
- */
 const resolveTicket = asyncHandler(async (req, res) => {
-    const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'Ticket not found');
-    if (!ticket.assignedAgent || ticket.assignedAgent.toString() !== req.user.id.toString()) {
-        throw new ApiError(403, 'FORBIDDEN', 'Only the assigned support agent can resolve this ticket');
-    }
-    if (ticket.status === 'resolved') throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'Ticket is already resolved');
-    if (ticket.status !== 'in_progress') {
-        throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'Ticket must be in progress before it can be resolved');
-    }
-    ticket.status = 'resolved';
-    ticket.resolutionSummary = req.body.resolutionSummary.trim();
-    await ticket.save();
-    res.json(ticket);
+    res.json(await (await workflowFor(req)).resolve(req.body.resolutionSummary));
+});
+
+const reopenTicket = asyncHandler(async (req, res) => {
+    res.json(await (await workflowFor(req)).reopen(req.body.reason, req.body.expectedVersion));
 });
 
 /**
@@ -167,38 +119,10 @@ const getMessages = asyncHandler(async (req, res) => {
     res.json(ticket.conversation || []);
 });
 
-/**
- * Appends a Requester's reply while a ticket is waiting for user input.
- * The reply preserves conversation history and automatically returns the ticket
- * to In Progress for the assigned Support Agent.
- *
- * @param {Object} req - Request containing ticket ID, authenticated Requester, and message.
- * @param {Object} res - Express response used to return the new conversation entry.
- * @returns {Promise<void>} Saves the reply or throws ownership/status errors.
- */
+/** Preserve the reply response contract: return the appended message. */
 const postMessage = asyncHandler(async (req, res) => {
-    const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'Ticket not found');
-    const requesterId = ticket.requester._id || ticket.requester;
-    if (requesterId.toString() !== req.user.id.toString()) {
-        throw new ApiError(403, 'FORBIDDEN', 'Only the requester who created this ticket can reply');
-    }
-    if (ticket.status === 'resolved') {
-        throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'A resolved ticket cannot receive new messages');
-    }
-    if (ticket.status !== 'waiting_for_user') {
-        throw new ApiError(409, 'INVALID_STATUS_TRANSITION', 'A reply can only be sent while the ticket is waiting for the requester');
-    }
-    if (!ticket.conversation) ticket.conversation = [];
-    ticket.conversation.push({
-        author: req.user.id,
-        authorName: req.user.name,
-        authorRole: 'requester',
-        message: req.body.message.trim(),
-    });
-    ticket.status = 'in_progress';
-    await ticket.save();
+    const ticket = await (await workflowFor(req)).reply(req.body.message);
     res.status(201).json(ticket.conversation[ticket.conversation.length - 1]);
 });
 
-module.exports = { getTickets, createTicket, getTicket, assignTicket, updateStatus, resolveTicket, getMessages, postMessage };
+module.exports = { getTickets, createTicket, getTicket, assignTicket, updateStatus, resolveTicket, reopenTicket, getMessages, postMessage };
