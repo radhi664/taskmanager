@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import api, { apiErrorMessage } from '../axiosConfig';
 import { useAuth } from '../context/AuthContext';
+import TicketHistory from '../components/TicketHistory';
 
 /**
  * Converts a backend enum value into a readable interface label.
@@ -29,6 +30,10 @@ export default function TicketDetails() {
   const [summary, setSummary] = useState('');
   const [requesterMessage, setRequesterMessage] = useState('');
   const [reply, setReply] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
+  const [refreshRequired, setRefreshRequired] = useState(false);
+  const reopeningPending = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -133,17 +138,108 @@ export default function TicketDetails() {
     if (sent) setReply('');
   };
 
+  // A failed refresh keeps the mutation locked until an explicit refresh succeeds.
+  const refreshAfterReopen = async () => {
+    try {
+      const { data } = await api.get(`/tickets/${id}`);
+      setTicket(data);
+      setAgentId(data.assignedAgent?._id || '');
+      setSelectedStatus(data.status === 'assigned' ? 'open' : data.status);
+      setRefreshRequired(false);
+      return true;
+    } catch (err) {
+      setRefreshRequired(true);
+      setError('Unable to refresh this request. Refresh successfully before attempting to reopen again. Your reason has been kept.');
+      return false;
+    }
+  };
+
+  const retryRefresh = async () => {
+    if (reopeningPending.current) return;
+    reopeningPending.current = true;
+    setSaving(true);
+    if (await refreshAfterReopen()) setError('Request refreshed. Review its current status before attempting to reopen again.');
+    reopeningPending.current = false;
+    setSaving(false);
+  };
+
+  const reopen = async event => {
+    event.preventDefault();
+    if (reopeningPending.current || saving || refreshRequired) return;
+    if (user.role !== 'requester' || (ticket.requester?._id || ticket.requester) !== user.id || ticket.status !== 'resolved') return;
+    const reason = reopenReason.trim();
+    if (!reason || reason.length > 2000) {
+      setReasonError('Enter a reopening reason of 1–2000 characters, excluding surrounding spaces.');
+      return;
+    }
+    // The detail endpoint reports zero for legacy records without a version.
+    const expectedVersion = ticket.__v ?? 0;
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) {
+      setRefreshRequired(true);
+      setError('The ticket version is unavailable. Refresh before reopening.');
+      return;
+    }
+    reopeningPending.current = true;
+    setSaving(true);
+    setReasonError('');
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.patch(`/tickets/${id}/reopen`, { reason, expectedVersion });
+      if (data?._id !== ticket._id || data.status !== 'open' || data.assignedAgent !== null) {
+        throw new Error('Unexpected reopening response');
+      }
+      // Mutation responses carry requester IDs; retain matching populated details.
+      const requester = typeof data.requester === 'string' && ticket.requester?._id === data.requester ? ticket.requester : data.requester;
+      setTicket({ ...data, requester });
+      setAgentId('');
+      setSelectedStatus('open');
+      setReopenReason('');
+      setMessage('Request reopened. It is open and unassigned, ready for IT Manager review and reassignment.');
+    } catch (err) {
+      const status = err.response?.status;
+      if (!status || status === 409 || status >= 500) {
+        setRefreshRequired(true);
+        const refreshed = await refreshAfterReopen();
+        if (refreshed) setError(status === 409
+          ? 'The request changed. Its current details have been refreshed. Review them before trying again; your reason has been kept.'
+          : 'The reopening response could not be confirmed. Current details have been refreshed; no automatic retry was made. Your reason has been kept.');
+      } else {
+        setError(apiErrorMessage(err, 'Unable to reopen this request. Your reason has been kept.'));
+      }
+    } finally {
+      reopeningPending.current = false;
+      setSaving(false);
+    }
+  };
+
   if (loading) return <div className="loading page-loading">Loading request...</div>;
   if (!ticket) return <div className="card empty"><h2>Request unavailable</h2>{error && <p>{error}</p>}<Link to="/tickets">Return to requests</Link></div>;
   const isAssignedAgent = user.role === 'support_agent' && ticket.assignedAgent?._id === user.id;
+  const canReopen = user.role === 'requester' && (ticket.requester?._id || ticket.requester) === user.id && ticket.status === 'resolved';
 
   return <>
     <Link className="back-link" to="/tickets">&larr; Back to requests</Link>
     {message && <div className="alert success" role="status">{message}</div>}
     {error && <div className="alert error" role="alert">{error}</div>}
+    {refreshRequired && <button className="button" disabled={saving} onClick={retryRefresh}>{saving ? 'Refreshing...' : 'Refresh request'}</button>}
     <header className="detail-heading"><div><span className="ticket-number">{ticket.ticketNumber}</span><h1>{ticket.title}</h1><div className="badge-row"><span className={`badge status-${ticket.status}`}>{pretty(ticket.status)}</span><span className={`badge priority-${ticket.priority}`}>{pretty(ticket.priority)} priority</span></div></div></header>
-    <div className="detail-grid"><section className="card detail-body"><h2>Issue details</h2><p className="description">{ticket.description}</p>{ticket.resolutionSummary && <div className="resolution"><span className="eyebrow">Resolution summary</span><p>{ticket.resolutionSummary}</p></div>}</section><aside className="card facts"><h2>Request information</h2><dl><div><dt>Category</dt><dd>{ticket.category}</dd></div><div><dt>Requester</dt><dd>{ticket.requester?.name || '—'}<small>{ticket.requester?.email}</small></dd></div><div><dt>Assigned agent</dt><dd>{ticket.assignedAgent?.name || 'Not assigned'}<small>{ticket.assignedAgent?.email}</small></dd></div><div><dt>Created</dt><dd>{new Date(ticket.createdAt).toLocaleString()}</dd></div><div><dt>Last updated</dt><dd>{new Date(ticket.updatedAt).toLocaleString()}</dd></div></dl></aside></div>
-    {user.role === 'it_manager' && ticket.status !== 'resolved' && <section className="card action-card"><div><h2>Assign support agent</h2><p>Assignment moves this request to Assigned.</p></div><div className="inline-action"><select value={agentId} onChange={event => setAgentId(event.target.value)}><option value="">Select an agent</option>{agents.map(agent => <option key={agent._id} value={agent._id}>{agent.name} — {agent.email}</option>)}</select><button className="button primary" disabled={saving} onClick={assign}>Assign</button></div></section>}
+    <div className="detail-grid"><section className="card detail-body"><h2>Issue details</h2><p className="description">{ticket.description}</p>{ticket.resolutionSummary && <div className="resolution"><span className="eyebrow">{ticket.status === 'resolved' ? 'Latest resolution summary' : 'Previous resolution summary'}</span><p>{ticket.resolutionSummary}</p></div>}</section><aside className="card facts"><h2>Request information</h2><dl><div><dt>Category</dt><dd>{ticket.category}</dd></div><div><dt>Requester</dt><dd>{ticket.requester?.name || '—'}<small>{ticket.requester?.email}</small></dd></div><div><dt>Assigned agent</dt><dd>{ticket.assignedAgent?.name || 'Not assigned'}<small>{ticket.assignedAgent?.email}</small></dd></div><div><dt>Created</dt><dd>{new Date(ticket.createdAt).toLocaleString()}</dd></div><div><dt>Last updated</dt><dd>{new Date(ticket.updatedAt).toLocaleString()}</dd></div></dl></aside></div>
+    <TicketHistory ticket={ticket} />
+    {canReopen && <section className="card conversation-card" aria-labelledby="reopen-heading">
+      <h2 id="reopen-heading">Reopen this request</h2>
+      <p>Explain why further support is needed. The request will return to the IT Manager for review and reassignment.</p>
+      <form className="reply-form" onSubmit={reopen} noValidate aria-busy={saving}>
+        <label htmlFor="reopen-reason">Reopening reason (required)</label>
+        <textarea id="reopen-reason" rows="4" required value={reopenReason} disabled={saving}
+          aria-describedby={`reopen-help${reasonError ? ' reopen-error' : ''}`} aria-invalid={Boolean(reasonError)}
+          onChange={event => { setReopenReason(event.target.value); setReasonError(''); }} />
+        <p id="reopen-help">{reopenReason.trim().length}/2000 characters. Enter 1–2000 characters, excluding surrounding spaces.</p>
+        {reasonError && <p id="reopen-error" role="alert">{reasonError}</p>}
+        <button className="button primary" type="submit" disabled={saving || refreshRequired}>{saving ? 'Reopening...' : 'Reopen request'}</button>
+      </form>
+    </section>}
+    {user.role === 'it_manager' && ticket.status !== 'resolved' && <section className="card action-card"><div><h2>Assign support agent</h2><p>Assignment moves this request to Assigned.</p></div><div className="inline-action"><select aria-label="Support agent to assign" value={agentId} onChange={event => setAgentId(event.target.value)}><option value="">Select an agent</option>{agents.map(agent => <option key={agent._id} value={agent._id}>{agent.name} — {agent.email}</option>)}</select><button className="button primary" disabled={saving} onClick={assign}>Assign</button></div></section>}
     {user.role === 'support_agent' && ticket.status !== 'resolved' && <section className="card action-card agent-actions"><div><h2>Update request</h2><p>Change the request status or record its resolution.</p></div>{isAssignedAgent ? <div className="status-update-form"><label>Status<select value={selectedStatus} onChange={event => { setSelectedStatus(event.target.value); setError(''); }}><option value="open">Open</option><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="waiting_for_user">Waiting for User</option><option value="resolved">Resolved</option></select></label>{selectedStatus === 'waiting_for_user' && <label>Message to requester <span>{requesterMessage.length}/2000</span><textarea rows="4" maxLength="2000" value={requesterMessage} onChange={event => setRequesterMessage(event.target.value)} placeholder="Explain what information or action is required from the requester..." required /></label>}{selectedStatus === 'resolved' && <label>Resolution summary <span>{summary.length}/2000</span><textarea rows="4" maxLength="2000" value={summary} onChange={event => setSummary(event.target.value)} placeholder="Describe the fix and outcome..." required /></label>}<button className="button primary" disabled={saving || (selectedStatus === 'waiting_for_user' && !requesterMessage.trim())} onClick={updateStatus}>{saving ? 'Updating...' : 'Update Status'}</button></div> : <p className="read-only-note">Only the assigned Support Agent can update this request.</p>}</section>}
     {user.role === 'requester' && ticket.status === 'waiting_for_user' && <section className="response-required"><div className="response-notice"><strong>Response required</strong><p>{[...(ticket.conversation || [])].reverse().find(item => item.authorRole === 'support_agent')?.message}</p></div><div className="reply-form"><label>Your reply<textarea rows="4" maxLength="2000" value={reply} onChange={event => setReply(event.target.value)} placeholder="Write your response to the support agent..." required /></label><button className="button primary" disabled={saving || !reply.trim()} onClick={sendReply}>{saving ? 'Sending...' : 'Send Reply'}</button></div></section>}
     <section className="card conversation-card"><h2>Conversation</h2>{ticket.conversation?.length ? <div className="conversation-list">{[...ticket.conversation].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)).map((item, index) => <article className="conversation-message" key={item._id || index}><div className="message-meta"><strong>{item.authorName}</strong><span>{item.authorRole === 'support_agent' ? 'Support Agent' : 'Requester'}</span><time>{new Date(item.createdAt).toLocaleString()}</time></div><p>{item.message}</p></article>)}</div> : <p className="conversation-empty">No conversation messages yet.</p>}</section>

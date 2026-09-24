@@ -132,7 +132,18 @@ const validateResolution = (body) => [requiredString(body, 'resolutionSummary', 
  */
 const validateMessage = (body) => [requiredString(body, 'message', 2000)].filter(Boolean);
 
+const validateReopen = (body) => {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return ['Request body must be an object'];
+    const errors = [requiredString(body, 'reason', 2000)].filter(Boolean);
+    if (!Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 0) {
+        errors.push('expectedVersion must be a non-negative safe integer');
+    }
+    if (Object.keys(body).some(key => !['reason', 'expectedVersion'].includes(key))) errors.push('Unknown reopening field');
+    return errors;
+};
+
 module.exports = {
+    validateReopen,
     validateRegistration,
     validateLogin,
     validateProfile,
